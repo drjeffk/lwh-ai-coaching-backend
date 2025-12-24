@@ -1,0 +1,33 @@
+{
+  "name": "lwh-ai-coaching-backend",
+  "version": "1.0.0",
+  "description": "Node.js backend for Leading with Heart AI Coaching App",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "migrate": "node src/db/migrate.js",
+    "fix-fk": "node src/db/fix-foreign-keys.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "pg": "^8.11.3",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "openai": "^4.91.1",
+    "stripe": "^14.21.0",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.1",
+    "nodemailer": "^6.9.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30"
+  }
+}
+

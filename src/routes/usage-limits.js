@@ -1,0 +1,198 @@
+import express from 'express';
+import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import pool from '../db/connection.js';
+
+const router = express.Router();
+
+// Get user's usage limits
+router.get('/', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM users_limits WHERE id = $1`,
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      // Create default limits if they don't exist
+      await pool.query(
+        `INSERT INTO users_limits (
+          id, email_generations_today, email_generations_last_reset,
+          coaching_sessions_today, coaching_sessions_last_reset,
+          difficult_conversations_today, difficult_conversations_last_reset
+        ) VALUES ($1, 0, now(), 0, now(), 0, now())`,
+        [req.user.id]
+      );
+
+      const newResult = await pool.query(
+        `SELECT * FROM users_limits WHERE id = $1`,
+        [req.user.id]
+      );
+
+      return res.json(newResult.rows[0]);
+    }
+
+    // Check if we need to reset daily limits
+    const limits = result.rows[0];
+    const now = new Date();
+    const lastReset = new Date(limits.email_generations_last_reset);
+    
+    // Reset if it's a new day
+    if (now.toDateString() !== lastReset.toDateString()) {
+      await pool.query(
+        `UPDATE users_limits SET
+          email_generations_today = 0,
+          email_generations_last_reset = now(),
+          coaching_sessions_today = 0,
+          coaching_sessions_last_reset = now(),
+          difficult_conversations_today = 0,
+          difficult_conversations_last_reset = now()
+        WHERE id = $1`,
+        [req.user.id]
+      );
+
+      const updatedResult = await pool.query(
+        `SELECT * FROM users_limits WHERE id = $1`,
+        [req.user.id]
+      );
+
+      return res.json(updatedResult.rows[0]);
+    }
+
+    res.json(limits);
+  } catch (error) {
+    console.error('Get usage limits error:', error);
+    res.status(500).json({ error: 'Failed to get usage limits' });
+  }
+});
+
+// Increment usage counter
+router.post('/increment', authenticateToken, async (req, res) => {
+  try {
+    const { type } = req.body; // 'email', 'coaching', or 'difficult_conversation'
+
+    if (!type || !['email', 'coaching', 'difficult_conversation'].includes(type)) {
+      return res.status(400).json({ error: 'Invalid type. Must be email, coaching, or difficult_conversation' });
+    }
+
+    const fieldMap = {
+      email: 'email_generations_today',
+      coaching: 'coaching_sessions_today',
+      difficult_conversation: 'difficult_conversations_today'
+    };
+
+    const field = fieldMap[type];
+
+    const result = await pool.query(
+      `UPDATE users_limits 
+       SET ${field} = ${field} + 1,
+           updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Usage limits not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Increment usage error:', error);
+    res.status(500).json({ error: 'Failed to increment usage' });
+  }
+});
+
+// Admin: Set custom limits for testing (development only)
+router.put('/:userId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const {
+      email_generations_today,
+      coaching_sessions_today,
+      difficult_conversations_today,
+      reset_all = false
+    } = req.body;
+
+    // Check if user exists
+    const userCheck = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if limits record exists
+    const limitsCheck = await pool.query('SELECT id FROM users_limits WHERE id = $1', [userId]);
+    
+    if (limitsCheck.rows.length === 0) {
+      // Create limits record
+      await pool.query(
+        `INSERT INTO users_limits (
+          id, email_generations_today, email_generations_last_reset,
+          coaching_sessions_today, coaching_sessions_last_reset,
+          difficult_conversations_today, difficult_conversations_last_reset
+        ) VALUES ($1, $2, now(), $3, now(), $4, now())`,
+        [
+          userId,
+          email_generations_today ?? 0,
+          coaching_sessions_today ?? 0,
+          difficult_conversations_today ?? 0
+        ]
+      );
+    } else {
+      // Update limits
+      const updateFields = [];
+      const updateValues = [];
+      let paramIndex = 1;
+
+      if (reset_all) {
+        // Reset all counters to 0
+        await pool.query(
+          `UPDATE users_limits SET
+            email_generations_today = 0,
+            coaching_sessions_today = 0,
+            difficult_conversations_today = 0,
+            email_generations_last_reset = now(),
+            coaching_sessions_last_reset = now(),
+            difficult_conversations_last_reset = now(),
+            updated_at = now()
+          WHERE id = $1`,
+          [userId]
+        );
+      } else {
+        // Update specific fields
+        if (email_generations_today !== undefined) {
+          updateFields.push(`email_generations_today = $${paramIndex++}`);
+          updateValues.push(email_generations_today);
+        }
+        if (coaching_sessions_today !== undefined) {
+          updateFields.push(`coaching_sessions_today = $${paramIndex++}`);
+          updateValues.push(coaching_sessions_today);
+        }
+        if (difficult_conversations_today !== undefined) {
+          updateFields.push(`difficult_conversations_today = $${paramIndex++}`);
+          updateValues.push(difficult_conversations_today);
+        }
+
+        if (updateFields.length > 0) {
+          updateValues.push(userId);
+          await pool.query(
+            `UPDATE users_limits SET
+              ${updateFields.join(', ')},
+              updated_at = now()
+            WHERE id = $${paramIndex}`,
+            updateValues
+          );
+        }
+      }
+    }
+
+    // Return updated limits
+    const result = await pool.query('SELECT * FROM users_limits WHERE id = $1', [userId]);
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Set limits error:', error);
+    res.status(500).json({ error: 'Failed to set limits' });
+  }
+});
+
+export default router;
+

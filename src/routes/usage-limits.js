@@ -105,6 +105,7 @@ router.post('/increment', authenticateToken, async (req, res) => {
 // Admin: Get all users' usage stats
 router.get('/all', authenticateToken, requireAdmin, async (req, res) => {
   try {
+    // Exclude the current admin's account from the results
     const result = await pool.query(
       `SELECT 
         p.id as user_id,
@@ -122,7 +123,9 @@ router.get('/all', authenticateToken, requireAdmin, async (req, res) => {
       FROM profiles p
       LEFT JOIN users_limits ul ON p.id = ul.id
       LEFT JOIN subscriptions s ON p.id = s.user_id
-      ORDER BY p.email ASC`
+      WHERE p.id != $1
+      ORDER BY p.email ASC`,
+      [req.user.id]
     );
 
     const usersStats = result.rows.map((row) => {

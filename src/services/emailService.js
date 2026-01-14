@@ -122,7 +122,7 @@ export const sendWelcomeEmail = async (userEmail, userName) => {
             <li>Difficult conversation practice</li>
             <li>And much more!</li>
           </ul>
-          <a href="${process.env.FRONTEND_URL || 'http://localhost:8080'}" class="button">Get Started</a>
+          <a href="${process.env.FRONTEND_URL || 'https://www.leadingwithheart.ai/auth'}" class="button">Get Started</a>
         </div>
         <div class="footer">
           <p>© ${new Date().getFullYear()} Leading with Heart. All rights reserved.</p>

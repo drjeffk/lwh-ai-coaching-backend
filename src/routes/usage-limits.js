@@ -115,21 +115,33 @@ router.get('/all', authenticateToken, requireAdmin, async (req, res) => {
         COALESCE(ul.difficult_conversations_today, 0) as difficult_conversations_today,
         ul.email_generations_last_reset,
         ul.coaching_sessions_last_reset,
-        ul.difficult_conversations_last_reset
+        ul.difficult_conversations_last_reset,
+        COALESCE(s.status, 'free') as subscription_status,
+        COALESCE(s.plan, 'free') as subscription_plan
       FROM profiles p
       LEFT JOIN users_limits ul ON p.id = ul.id
+      LEFT JOIN subscriptions s ON p.id = s.user_id
       ORDER BY p.email ASC`
     );
 
-    const usersStats = result.rows.map((row) => ({
-      userId: row.user_id,
-      email: row.email,
-      fullName: row.full_name || null,
-      emailGenerations: parseInt(row.email_generations_today) || 0,
-      coachingSessions: parseInt(row.coaching_sessions_today) || 0,
-      difficultConversations: parseInt(row.difficult_conversations_today) || 0,
-      lastReset: row.email_generations_last_reset || null,
-    }));
+    const usersStats = result.rows.map((row) => {
+      const subscriptionStatus = row.subscription_status || 'free';
+      const subscriptionPlan = row.subscription_plan || 'free';
+      const isPro = subscriptionStatus === 'active' || subscriptionStatus === 'trialing' || subscriptionPlan === 'pro';
+      
+      return {
+        userId: row.user_id,
+        email: row.email,
+        fullName: row.full_name || null,
+        emailGenerations: parseInt(row.email_generations_today) || 0,
+        coachingSessions: parseInt(row.coaching_sessions_today) || 0,
+        difficultConversations: parseInt(row.difficult_conversations_today) || 0,
+        lastReset: row.email_generations_last_reset || null,
+        subscriptionType: isPro ? 'PRO' : 'FREE',
+        subscriptionStatus: subscriptionStatus,
+        subscriptionPlan: subscriptionPlan,
+      };
+    });
 
     res.json(usersStats);
   } catch (error) {

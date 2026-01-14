@@ -117,7 +117,8 @@ router.get('/all', authenticateToken, requireAdmin, async (req, res) => {
         ul.coaching_sessions_last_reset,
         ul.difficult_conversations_last_reset,
         COALESCE(s.status, 'free') as subscription_status,
-        COALESCE(s.plan, 'free') as subscription_plan
+        COALESCE(s.plan, 'free') as subscription_plan,
+        s.current_period_end as subscription_expires_at
       FROM profiles p
       LEFT JOIN users_limits ul ON p.id = ul.id
       LEFT JOIN subscriptions s ON p.id = s.user_id
@@ -127,7 +128,17 @@ router.get('/all', authenticateToken, requireAdmin, async (req, res) => {
     const usersStats = result.rows.map((row) => {
       const subscriptionStatus = row.subscription_status || 'free';
       const subscriptionPlan = row.subscription_plan || 'free';
-      const isPro = subscriptionStatus === 'active' || subscriptionStatus === 'trialing' || subscriptionPlan === 'pro';
+      const expiresAt = row.subscription_expires_at || null;
+      
+      // Check if subscription is expired
+      let isPro = subscriptionStatus === 'active' || subscriptionStatus === 'trialing' || subscriptionPlan === 'pro';
+      if (isPro && expiresAt) {
+        const expirationDate = new Date(expiresAt);
+        const now = new Date();
+        if (expirationDate < now) {
+          isPro = false; // Subscription has expired
+        }
+      }
       
       return {
         userId: row.user_id,
@@ -140,6 +151,7 @@ router.get('/all', authenticateToken, requireAdmin, async (req, res) => {
         subscriptionType: isPro ? 'PRO' : 'FREE',
         subscriptionStatus: subscriptionStatus,
         subscriptionPlan: subscriptionPlan,
+        subscriptionExpiresAt: expiresAt,
       };
     });
 

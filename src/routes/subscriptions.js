@@ -53,8 +53,21 @@ router.put('/:userId', authenticateToken, async (req, res) => {
       cancel_at_period_end,
       canceled_at,
       trial_start,
-      trial_end
+      trial_end,
+      expires_at
     } = req.body;
+
+    // Use expires_at if provided, otherwise use current_period_end
+    // If expires_at is explicitly null, set current_period_end to null (non-expiring)
+    let expirationDate = current_period_end;
+    if (expires_at !== undefined) {
+      expirationDate = expires_at === null ? null : expires_at;
+    }
+
+    // Build the UPDATE clause for current_period_end
+    const periodEndUpdate = expires_at !== undefined 
+      ? 'current_period_end = EXCLUDED.current_period_end'
+      : 'current_period_end = COALESCE(EXCLUDED.current_period_end, subscriptions.current_period_end)';
 
     const result = await pool.query(
       `INSERT INTO subscriptions (
@@ -63,16 +76,16 @@ router.put('/:userId', authenticateToken, async (req, res) => {
         canceled_at, trial_start, trial_end
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       ON CONFLICT (user_id) DO UPDATE SET
-        stripe_customer_id = EXCLUDED.stripe_customer_id,
-        stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+        stripe_customer_id = COALESCE(EXCLUDED.stripe_customer_id, subscriptions.stripe_customer_id),
+        stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, subscriptions.stripe_subscription_id),
         status = EXCLUDED.status,
         plan = EXCLUDED.plan,
-        current_period_start = EXCLUDED.current_period_start,
-        current_period_end = EXCLUDED.current_period_end,
-        cancel_at_period_end = EXCLUDED.cancel_at_period_end,
-        canceled_at = EXCLUDED.canceled_at,
-        trial_start = EXCLUDED.trial_start,
-        trial_end = EXCLUDED.trial_end,
+        current_period_start = COALESCE(EXCLUDED.current_period_start, subscriptions.current_period_start),
+        ${periodEndUpdate},
+        cancel_at_period_end = COALESCE(EXCLUDED.cancel_at_period_end, subscriptions.cancel_at_period_end),
+        canceled_at = COALESCE(EXCLUDED.canceled_at, subscriptions.canceled_at),
+        trial_start = COALESCE(EXCLUDED.trial_start, subscriptions.trial_start),
+        trial_end = COALESCE(EXCLUDED.trial_end, subscriptions.trial_end),
         updated_at = now()
       RETURNING *`,
       [
@@ -82,8 +95,8 @@ router.put('/:userId', authenticateToken, async (req, res) => {
         status || 'free',
         plan || 'free',
         current_period_start,
-        current_period_end,
-        cancel_at_period_end || false,
+        expirationDate,
+        cancel_at_period_end !== undefined ? cancel_at_period_end : false,
         canceled_at,
         trial_start,
         trial_end

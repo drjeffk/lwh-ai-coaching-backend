@@ -130,13 +130,25 @@ router.get('/all', authenticateToken, requireAdmin, async (req, res) => {
       const subscriptionPlan = row.subscription_plan || 'free';
       const expiresAt = row.subscription_expires_at || null;
       
-      // Check if subscription is expired
+      // First determine if subscription is PRO based on status/plan
       let isPro = subscriptionStatus === 'active' || subscriptionStatus === 'trialing' || subscriptionPlan === 'pro';
+      
+      // Only check expiration if subscription is PRO and has an expiration date
+      // If expiration date is in the past, downgrade to FREE
       if (isPro && expiresAt) {
-        const expirationDate = new Date(expiresAt);
-        const now = new Date();
-        if (expirationDate < now) {
-          isPro = false; // Subscription has expired
+        try {
+          const expirationDate = new Date(expiresAt);
+          const now = new Date();
+          // Only downgrade if expiration is in the past (with 1 second buffer for timezone issues)
+          if (expirationDate.getTime() < (now.getTime() - 1000)) {
+            isPro = false; // Subscription has expired
+            console.log(`[UsageLimits] Subscription expired for user ${row.user_id}: ${expirationDate} < ${now}`);
+          } else {
+            console.log(`[UsageLimits] Subscription still active for user ${row.user_id}: expires at ${expirationDate}`);
+          }
+        } catch (error) {
+          console.error(`[UsageLimits] Error parsing expiration date for user ${row.user_id}:`, error);
+          // If we can't parse the date, keep the current status
         }
       }
       

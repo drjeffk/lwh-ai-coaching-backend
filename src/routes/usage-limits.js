@@ -102,6 +102,42 @@ router.post('/increment', authenticateToken, async (req, res) => {
   }
 });
 
+// Admin: Get all users' usage stats
+router.get('/all', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT 
+        p.id as user_id,
+        p.email,
+        p.full_name,
+        COALESCE(ul.email_generations_today, 0) as email_generations_today,
+        COALESCE(ul.coaching_sessions_today, 0) as coaching_sessions_today,
+        COALESCE(ul.difficult_conversations_today, 0) as difficult_conversations_today,
+        ul.email_generations_last_reset,
+        ul.coaching_sessions_last_reset,
+        ul.difficult_conversations_last_reset
+      FROM profiles p
+      LEFT JOIN users_limits ul ON p.id = ul.id
+      ORDER BY p.email ASC`
+    );
+
+    const usersStats = result.rows.map((row) => ({
+      userId: row.user_id,
+      email: row.email,
+      fullName: row.full_name || null,
+      emailGenerations: parseInt(row.email_generations_today) || 0,
+      coachingSessions: parseInt(row.coaching_sessions_today) || 0,
+      difficultConversations: parseInt(row.difficult_conversations_today) || 0,
+      lastReset: row.email_generations_last_reset || null,
+    }));
+
+    res.json(usersStats);
+  } catch (error) {
+    console.error('Get all users stats error:', error);
+    res.status(500).json({ error: 'Failed to get users stats' });
+  }
+});
+
 // Admin: Set custom limits for testing (development only)
 router.put('/:userId', authenticateToken, requireAdmin, async (req, res) => {
   try {
